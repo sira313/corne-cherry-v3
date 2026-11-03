@@ -17,6 +17,7 @@ MAP = {
     "ALT": "&kp LALT", "OPT": "&kp LALT", "MENU": "&kp K_CONTEXT_MENU", "GUI": "&kp LGUI", "ENT": "&kp RET", "RSE": "&mo 2",
     "LWR": "&mo 1", "&mo3": "&mo 3", "SPC": "&kp SPACE",
     "CAPS": "&kp CAPS", "DEL": "&kp DEL", "PRTSC": "&kp PRINTSCREEN",
+    "PgUp": "&kp PG_UP", "PgDn": "&kp PG_DN",
     "BRUP": "&kp C_BRI_UP", "BRDN": "&kp C_BRI_DN",
     "VOLUP": "&kp K_VOL_UP", "VOLDN": "&kp K_VOL_DN",
     "UNLK": "&studio_unlock", "BTCLR": "&bt BT_CLR", "TOG3": "&tog 3",

@@ -83,13 +83,13 @@
                 raise_layer {
                         display-name = "2";
 //       | TAB  | !    | @    | #     | $    | %     | ^    | &    | *    | (    | )    | DEL |
-//       | CAPS |      | PRTSC| BRDN  | BRUP |       | -    | =    | [    | ]    | BSLH | `   |
-//       | CTRL |      |      | VOLDN | VOLUP|       | _    | +    | {    | }    | PIPE | ~   |
+//       | CAPS | PgUp | PRTSC| BRDN  | BRUP |       | -    | =    | [    | ]    | BSLH | `   |
+//       | CTRL | PgDn |      | VOLDN | VOLUP|       | _    | +    | {    | }    | PIPE | ~   |
 //       | ALT  | LWR  | SPC | &mo3 | RSE  | GUI  |
                         bindings = <
    &kp TAB   &kp EXCL &kp AT &kp HASH &kp DLLR &kp PRCNT &kp CARET &kp AMPS &kp ASTRK &kp LPAR &kp RPAR &kp DEL
-   &kp CAPS  &trans   &kp PRINTSCREEN &kp C_BRI_DN &kp C_BRI_UP &trans &kp MINUS &kp EQUAL &kp LBKT &kp RBKT &kp BSLH &kp GRAVE
-   &kp LCTRL &trans   &trans &kp K_VOL_DN &kp K_VOL_UP &trans &kp UNDER &kp PLUS &kp LBRC &kp RBRC &kp PIPE &kp TILDE
+   &kp CAPS  &kp PG_UP &kp PRINTSCREEN &kp C_BRI_DN &kp C_BRI_UP &trans &kp MINUS &kp EQUAL &kp LBKT &kp RBKT &kp BSLH &kp GRAVE
+   &kp LCTRL &kp PG_DN &trans &kp K_VOL_DN &kp K_VOL_UP &trans &kp UNDER &kp PLUS &kp LBRC &kp RBRC &kp PIPE &kp TILDE
                    &kp LALT &mo 1 &kp SPACE &mo 3 &mo 2 &kp LGUI
                         >;
                 };

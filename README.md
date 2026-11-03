@@ -91,6 +91,22 @@ Butuh `wget` untuk skrip setup SDK — di sini digantikan shim `curl` di
 ./flash.sh --no-build # pakai build terakhir
 ```
 
+## Tes pemakaian baterai half kiri
+
+`battery-left.sh` membaca persentase baterai Corne kiri melalui UPower/BlueZ
+dan mencatatnya ke `battery-left.csv`. Karena indikator 100% saat charging
+bisa muncul sebelum baterai benar-benar penuh, titik awal hanya ditetapkan
+setelah LED charging mati.
+
+```bash
+./battery-left.sh --list
+./battery-left.sh --interval 300
+```
+
+Saat diminta, jawab `y` hanya ketika LED charging kiri sudah mati. Biarkan
+script berjalan selama pemakaian normal; hentikan dengan `Ctrl-C`. Untuk
+memilih device secara manual, gunakan `--device PATH` dari output `--list`.
+
 `flash.sh` mengenali tiap half lewat USB serial, jadi tidak akan tertukar:
 
 | Half | Serial |
