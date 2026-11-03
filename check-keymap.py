@@ -21,7 +21,7 @@ MAP = {
     "BRUP": "&kp C_BRI_UP", "BRDN": "&kp C_BRI_DN",
     "VOLUP": "&kp K_VOL_UP", "VOLDN": "&kp K_VOL_DN",
     "UNLK": "&studio_unlock", "BTCLR": "&bt BT_CLR", "TOG3": "&tog 3",
-    "PIPE": "&kp PIPE", "BSLH": "&kp BSLH",
+    "|": "&kp PIPE", "\\": "&kp BSLH",
     "LEFT": "&kp LEFT", "RIGHT": "&kp RIGHT", "UP": "&kp UP", "DOWN": "&kp DOWN",
     "LCLK": "&mkp LCLK", "RCLK": "&mkp RCLK",
     "MOVEU": "&mmv MOVE_UP", "MOVEL": "&mmv MOVE_LEFT",
@@ -65,7 +65,9 @@ def comment_cells(path):
         for line in body.splitlines():
             s = line.strip()
             if s.startswith("//"):
-                cells += [(c.strip() or "-") for c in s.split("//", 1)[1].split("|")[1:-1]]
+                body = s.split("//", 1)[1].replace("\\|", "__PIPE__")
+                cells += [(c.strip().replace("__PIPE__", "|") or "-")
+                          for c in body.split("|")[1:-1]]
         out.append((name, cells))
     return out
 
@@ -113,13 +115,14 @@ def main(path, svg_path):
         comments = [l for l in lines if l.strip().startswith("//")]
         binds = [parse_bindings(l) for l in lines if l.strip().startswith("&")]
         for i, (cline, brow) in enumerate(zip(comments, binds)):
-            cells = cline.split("//", 1)[1].split("|")[1:-1]
+            body = cline.split("//", 1)[1].replace("\\|", "__PIPE__")
+            cells = body.split("|")[1:-1]
             if len(cells) != len(brow):
                 print(f"[{name}] baris {i}: comment {len(cells)} sel, binding {len(brow)} -> JUMLAH BEDA")
                 bad += 1
                 continue
             for col, (cell, have) in enumerate(zip(cells, brow), start=1):
-                label = cell.strip()
+                label = cell.strip().replace("__PIPE__", "|")
                 # ponytail: sel kosong terima &trans atau &none; kalau butuh
                 # Bedakan strict, ganti label kosong jadi "NONE" + MAP["NONE"].
                 want = ({MAP[label]} if label in MAP

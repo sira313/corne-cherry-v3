@@ -7,7 +7,7 @@
  *   2  raise   : simbol, media key
  *   3  mouse   : kursor, klik, scroll  ->  aktif lewat &mo3 di thumb
  *
- * Notasi: MB3/MB4/MB5 = tombol mouse 3/4/5, PIPE = '|'
+ * Notasi: MB3/MB4/MB5 = tombol mouse 3/4/5
  */
 
 #include <behaviors.dtsi>
@@ -83,8 +83,8 @@
                 raise_layer {
                         display-name = "2";
 //       | TAB  | !    | @    | #     | $    | %     | ^    | &    | *    | (    | )    | DEL |
-//       | CAPS | PgUp | PRTSC| BRDN  | BRUP |       | -    | =    | [    | ]    | BSLH | `   |
-//       | CTRL | PgDn |      | VOLDN | VOLUP|       | _    | +    | {    | }    | PIPE | ~   |
+//       | CAPS | PgUp | PRTSC| BRDN  | BRUP |       | -    | =    | [    | ]    | \    | `   |
+//       | CTRL | PgDn |      | VOLDN | VOLUP|       | _    | +    | {    | }    | \|   | ~   |
 //       | ALT  | LWR  | SPC | &mo3 | RSE  | GUI  |
                         bindings = <
    &kp TAB   &kp EXCL &kp AT &kp HASH &kp DLLR &kp PRCNT &kp CARET &kp AMPS &kp ASTRK &kp LPAR &kp RPAR &kp DEL
