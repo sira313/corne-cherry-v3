@@ -20,6 +20,7 @@ MAP = {
     "PgUp": "&kp PG_UP", "PgDn": "&kp PG_DN",
     "BRUP": "&kp C_BRI_UP", "BRDN": "&kp C_BRI_DN",
     "VOLUP": "&kp K_VOL_UP", "VOLDN": "&kp K_VOL_DN",
+    "PREV": "&kp C_PREV", "PLAY": "&kp C_PP", "NEXT": "&kp C_NEXT",
     "UNLK": "&studio_unlock", "BTCLR": "&bt BT_CLR", "TOG3": "&tog 3",
     "|": "&kp PIPE", "\\": "&kp BSLH",
     "LEFT": "&kp LEFT", "RIGHT": "&kp RIGHT", "UP": "&kp UP", "DOWN": "&kp DOWN",
