@@ -1,0 +1,609 @@
+From 608b52420f17676b20135f1666946ffd71fe823c Mon Sep 17 00:00:00 2001
+From: sira313 <me@apoxi.cam>
+Date: Mon, 23 Nov 2026 22:23:33 +0700
+Subject: [PATCH] feat(display): strata portrait OLED layout for Corne (SSD1306
+ 128x32)
+
+- 32x128 portrait canvas rotated 90deg into the 128x32 panel, software only
+- left: output/BT profiles, 5 layer boxes, battery gauge with charging bolt
+- right: pixel logo (logo2.piskel), split LINK status, battery gauge
+- stock widgets kept as hidden state sources feeding the strata UI
+---
+ app/src/display/status_screen.c             | 303 +++++++++++++++++++-
+ app/src/display/strata_ui.h                 |  21 ++
+ app/src/display/widgets/battery_status.c    |  35 +--
+ app/src/display/widgets/layer_status.c      |  19 +-
+ app/src/display/widgets/output_status.c     |  38 ++-
+ app/src/display/widgets/peripheral_status.c |   6 +-
+ 6 files changed, 354 insertions(+), 68 deletions(-)
+ create mode 100644 app/src/display/strata_ui.h
+
+diff --git a/app/src/display/status_screen.c b/app/src/display/status_screen.c
+index 58de09ae..96a2a7c0 100644
+--- a/app/src/display/status_screen.c
++++ b/app/src/display/status_screen.c
+@@ -2,8 +2,19 @@
+  * Copyright (c) 2020 The ZMK Contributors
+  *
+  * SPDX-License-Identifier: MIT
++ *
++ * Strata portrait layout. Content is drawn into a 32x128 L8 buffer (the same
++ * shape as the nice!view mockup) and copied rotated into a 128x32 L8 canvas
++ * that LVGL blits to the SSD1306.
++ *
++ * Central (left): output, Bluetooth profiles, layers and battery.
++ * Peripheral (right): pixel logo, split link status and battery.
+  */
+ 
++#include <stdio.h>
++#include <string.h>
++
++#include <zmk/keymap.h>
+ #include <zmk/display/widgets/output_status.h>
+ #include <zmk/display/widgets/peripheral_status.h>
+ #include <zmk/display/widgets/battery_status.h>
+@@ -14,6 +25,278 @@
+ #include <zephyr/logging/log.h>
+ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
+ 
++#include "strata_ui.h"
++
++#define PVIEW_W 32
++#define PVIEW_H 128
++#define PANEL_W 128
++#define PANEL_H 32
++
++#define STRATA_BG lv_color_white()
++#define STRATA_FG lv_color_black()
++
++#define PSTRIDE 32
++#define DSTRIDE 128
++
++static uint8_t portrait_buf[PVIEW_W * PVIEW_H] __aligned(4);
++static uint8_t panel_buf[PANEL_W * PANEL_H] __aligned(4);
++
++static lv_obj_t *portrait_canvas;
++static lv_obj_t *panel_canvas;
++
++struct strata_state {
++    char output[12];
++    bool connected;
++    int profile;
++    uint8_t battery;
++    bool charging;
++    int layer_index;
++    char layer_label[12];
++    bool link;
++};
++
++static struct strata_state state = {
++    .profile = -1,
++};
++
++/* 32x32 logo from logo2.piskel, bit 0 is the leftmost pixel of each row. */
++static const uint32_t strata_logo[32] __attribute__((unused)) = {
++    0x00000000, 0x00000000, 0x0000f800, 0x00018c00,
++    0x00010600, 0x00030200, 0x00020200, 0x00020200,
++    0x0003fe00, 0x00020200, 0x00020200, 0x00020200,
++    0x00020200, 0x00020200, 0x003e0200, 0x00600200,
++    0x00c00200, 0x00800200, 0x00800200, 0x00800200,
++    0x00c00200, 0x00600200, 0x00600200, 0x00c00200,
++    0x00800200, 0x00800200, 0x00c00600, 0x00600c00,
++    0x00301800, 0x001ff000, 0x00000000, 0x00000000,
++};
++
++static void strata_fill(lv_layer_t *layer, int x, int y, int w, int h, lv_color_t color) {
++    lv_draw_rect_dsc_t dsc;
++    lv_draw_rect_dsc_init(&dsc);
++    dsc.bg_color = color;
++    dsc.bg_opa = LV_OPA_COVER;
++
++    lv_area_t area = {x, y, x + w - 1, y + h - 1};
++    lv_draw_rect(layer, &dsc, &area);
++}
++
++/* Borders on a 1-bit canvas render as solid blocks, so draw the outline as
++ * four thin filled strips instead. */
++static void strata_outline(lv_layer_t *layer, int x, int y, int w, int h) {
++    strata_fill(layer, x, y, w, 1, STRATA_FG);
++    strata_fill(layer, x, y + h - 1, w, 1, STRATA_FG);
++    strata_fill(layer, x, y, 1, h, STRATA_FG);
++    strata_fill(layer, x + w - 1, y, 1, h, STRATA_FG);
++}
++
++/* Small lightning bolt (5x7) drawn inside the battery shell while charging. */
++static void strata_draw_bolt(lv_layer_t *layer, int x, int y, lv_color_t color) {
++    static const uint8_t bolt[7] = {0x03, 0x06, 0x0c, 0x1f, 0x06, 0x0c, 0x18};
++
++    for (int row = 0; row < 7; row++) {
++        for (int col = 0; col < 5; col++) {
++            if (bolt[row] & (1u << (4 - col))) {
++                strata_fill(layer, x + col, y + row, 1, 1, color);
++            }
++        }
++    }
++}
++
++static void strata_draw_text(lv_layer_t *layer, int x, int y, const char *text) {
++    if (text == NULL || text[0] == '\0') {
++        return;
++    }
++
++    lv_draw_label_dsc_t dsc;
++    lv_draw_label_dsc_init(&dsc);
++    dsc.color = STRATA_FG;
++    dsc.font = &lv_font_unscii_8;
++    dsc.align = LV_TEXT_ALIGN_LEFT;
++    dsc.text = text;
++    /* LVGL keeps a pointer in the queued draw task; copy it now so the caller
++     * can safely reuse its formatting buffer. */
++    dsc.text_local = 1;
++
++    lv_area_t area = {x, y, x + PVIEW_W - 1, y + 9};
++    lv_draw_label(layer, &dsc, &area);
++}
++
++/* Draw one horizontal run per row so the logo only costs ~70 draw tasks. */
++static void __attribute__((unused)) strata_draw_logo(lv_layer_t *layer) {
++    /* Centred between the LINK text (ends at y=9) and the battery shell (y=101). */
++    const int y0 = 39;
++
++    for (int y = 0; y < 32; y++) {
++        uint32_t bits = strata_logo[y];
++        int x = 0;
++
++        while (bits != 0) {
++            while ((bits & 1u) == 0) {
++                bits >>= 1;
++                x++;
++            }
++            int start = x;
++            while ((bits & 1u) != 0) {
++                bits >>= 1;
++                x++;
++            }
++            strata_fill(layer, start, y0 + y, x - start, 1, STRATA_FG);
++        }
++    }
++}
++
++static void strata_redraw(void) {
++    if (portrait_canvas == NULL || panel_canvas == NULL) {
++        return;
++    }
++
++    lv_canvas_fill_bg(portrait_canvas, STRATA_BG, LV_OPA_COVER);
++
++    lv_layer_t layer;
++    lv_canvas_init_layer(portrait_canvas, &layer);
++
++    char buf[16];
++
++#if IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
++    /* Output / link, drawn by whichever widget exists on this half. */
++    if (state.output[0] != '\0') {
++        strata_draw_text(&layer, 1, 1, state.output);
++    } else {
++        strata_draw_text(&layer, 1, 1, state.link ? "LINK" : "----");
++    }
++    if (state.connected || state.link) {
++        strata_fill(&layer, 3, 11, 26, 3, STRATA_FG);
++    } else {
++        strata_outline(&layer, 3, 11, 26, 3);
++    }
++
++    /* Five Bluetooth profile squares: active filled, rest outlined. */
++    for (int i = 0; i < 5; i++) {
++        if (i == state.profile) {
++            strata_fill(&layer, 3 + i * 5, 17, 4, 4, STRATA_FG);
++        } else {
++            strata_outline(&layer, 3 + i * 5, 17, 4, 4);
++        }
++    }
++    if (state.profile >= 0) {
++        snprintf(buf, sizeof(buf), "P%d", state.profile + 1);
++        strata_draw_text(&layer, 1, 24, buf);
++    }
++
++    /* Five layer squares, identical in shape to the Bluetooth profile squares. */
++    int count = ZMK_KEYMAP_LAYERS_LEN;
++    if (count > 5) {
++        count = 5;
++    }
++    for (int i = 0; i < 5; i++) {
++        if (i < count && i == state.layer_index) {
++            strata_fill(&layer, 3 + i * 5, 36, 4, 4, STRATA_FG);
++        } else {
++            strata_outline(&layer, 3 + i * 5, 36, 4, 4);
++        }
++    }
++    if (count > 0) {
++        snprintf(buf, sizeof(buf), "L%d", state.layer_index);
++        strata_draw_text(&layer, 1, 42, buf);
++    }
++    if (state.layer_label[0] != '\0') {
++        strata_draw_text(&layer, 1, 51, state.layer_label);
++    }
++#else
++    /* Peripheral: only the split link and the logo. */
++    strata_draw_text(&layer, 1, 1, state.link ? "LINK" : "----");
++    if (state.link) {
++        strata_fill(&layer, 3, 11, 26, 3, STRATA_FG);
++    } else {
++        strata_outline(&layer, 3, 11, 26, 3);
++    }
++    strata_draw_logo(&layer);
++#endif
++
++    /* Battery gauge. The nub (positive pole) is at +x, so the level must run
++     * along x too: the filled part stays at the far end and recedes toward the
++     * nub as charge drops, instead of shrinking across the side of the shell. */
++    int level = (state.battery * 23) / 100;
++    if (level < 1 && state.battery > 0) {
++        level = 1;
++    }
++    if (level > 23) {
++        level = 23;
++    }
++    strata_outline(&layer, 3, 101, 25, 13);
++    strata_fill(&layer, 28, 104, 3, 6, STRATA_FG);
++    if (level > 0) {
++        strata_fill(&layer, 4, 102, level, 11, STRATA_FG);
++    }
++    if (state.charging) {
++        /* Cut the bolt out of the filled bar when there is enough charge to
++         * cover it, otherwise draw it dark on the empty part. */
++        lv_color_t bolt_color = level >= 14 ? STRATA_BG : STRATA_FG;
++        strata_draw_bolt(&layer, 13, 104, bolt_color);
++    }
++
++    snprintf(buf, sizeof(buf), "%u%%", state.battery);
++    strata_draw_text(&layer, 1, 116, buf);
++
++    lv_canvas_finish_layer(portrait_canvas, &layer);
++
++    /* Rotate 90 degrees clockwise into the panel buffer. */
++    const uint8_t *src = lv_canvas_get_draw_buf(portrait_canvas)->data;
++    uint8_t *dst = lv_canvas_get_draw_buf(panel_canvas)->data;
++    for (int y = 0; y < PVIEW_H; y++) {
++        for (int x = 0; x < PVIEW_W; x++) {
++            dst[x * DSTRIDE + (PVIEW_H - 1 - y)] = src[y * PSTRIDE + x];
++        }
++    }
++
++    lv_obj_invalidate(panel_canvas);
++}
++
++void strata_ui_create(lv_obj_t *screen) {
++    portrait_canvas = lv_canvas_create(screen);
++    lv_obj_add_flag(portrait_canvas, LV_OBJ_FLAG_HIDDEN);
++    lv_canvas_set_buffer(portrait_canvas, portrait_buf, PVIEW_W, PVIEW_H, LV_COLOR_FORMAT_L8);
++
++    panel_canvas = lv_canvas_create(screen);
++    lv_obj_align(panel_canvas, LV_ALIGN_TOP_LEFT, 0, 0);
++    lv_canvas_set_buffer(panel_canvas, panel_buf, PANEL_W, PANEL_H, LV_COLOR_FORMAT_L8);
++
++    strata_redraw();
++}
++
++void strata_ui_set_output(const char *text, bool connected, int profile, bool bonded) {
++    ARG_UNUSED(bonded);
++
++    strncpy(state.output, text, sizeof(state.output) - 1);
++    state.output[sizeof(state.output) - 1] = '\0';
++    state.connected = connected;
++    state.profile = profile;
++    strata_redraw();
++}
++
++void strata_ui_set_battery(uint8_t level, bool charging) {
++    state.battery = level;
++    state.charging = charging;
++    strata_redraw();
++}
++
++void strata_ui_set_layer(int index, const char *label) {
++    state.layer_index = index;
++    if (label != NULL) {
++        strncpy(state.layer_label, label, sizeof(state.layer_label) - 1);
++        state.layer_label[sizeof(state.layer_label) - 1] = '\0';
++    } else {
++        state.layer_label[0] = '\0';
++    }
++    strata_redraw();
++}
++
++void strata_ui_set_link(bool connected) {
++    state.link = connected;
++    strata_redraw();
++}
++
+ #if IS_ENABLED(CONFIG_ZMK_WIDGET_BATTERY_STATUS)
+ static struct zmk_widget_battery_status battery_status_widget;
+ #endif
+@@ -35,35 +318,35 @@ static struct zmk_widget_wpm_status wpm_status_widget;
+ #endif
+ 
+ lv_obj_t *zmk_display_status_screen() {
+-    lv_obj_t *screen;
+-    screen = lv_obj_create(NULL);
++    lv_obj_t *screen = lv_obj_create(NULL);
++
++    /* Stock widget labels are hidden; their listeners only feed strata state. */
++    strata_ui_create(screen);
+ 
+ #if IS_ENABLED(CONFIG_ZMK_WIDGET_BATTERY_STATUS)
+     zmk_widget_battery_status_init(&battery_status_widget, screen);
+-    lv_obj_align(zmk_widget_battery_status_obj(&battery_status_widget), LV_ALIGN_TOP_RIGHT, 0, 0);
++    lv_obj_add_flag(zmk_widget_battery_status_obj(&battery_status_widget), LV_OBJ_FLAG_HIDDEN);
+ #endif
+ 
+ #if IS_ENABLED(CONFIG_ZMK_WIDGET_OUTPUT_STATUS)
+     zmk_widget_output_status_init(&output_status_widget, screen);
+-    lv_obj_align(zmk_widget_output_status_obj(&output_status_widget), LV_ALIGN_TOP_LEFT, 0, 0);
++    lv_obj_add_flag(zmk_widget_output_status_obj(&output_status_widget), LV_OBJ_FLAG_HIDDEN);
+ #endif
+ 
+ #if IS_ENABLED(CONFIG_ZMK_WIDGET_PERIPHERAL_STATUS)
+     zmk_widget_peripheral_status_init(&peripheral_status_widget, screen);
+-    lv_obj_align(zmk_widget_peripheral_status_obj(&peripheral_status_widget), LV_ALIGN_TOP_LEFT, 0,
+-                 0);
++    lv_obj_add_flag(zmk_widget_peripheral_status_obj(&peripheral_status_widget), LV_OBJ_FLAG_HIDDEN);
+ #endif
+ 
+ #if IS_ENABLED(CONFIG_ZMK_WIDGET_LAYER_STATUS)
+     zmk_widget_layer_status_init(&layer_status_widget, screen);
+-    lv_obj_set_style_text_font(zmk_widget_layer_status_obj(&layer_status_widget),
+-                               lv_theme_get_font_small(screen), LV_PART_MAIN);
+-    lv_obj_align(zmk_widget_layer_status_obj(&layer_status_widget), LV_ALIGN_BOTTOM_LEFT, 0, 0);
++    lv_obj_add_flag(zmk_widget_layer_status_obj(&layer_status_widget), LV_OBJ_FLAG_HIDDEN);
+ #endif
+ 
+ #if IS_ENABLED(CONFIG_ZMK_WIDGET_WPM_STATUS)
+     zmk_widget_wpm_status_init(&wpm_status_widget, screen);
+-    lv_obj_align(zmk_widget_wpm_status_obj(&wpm_status_widget), LV_ALIGN_BOTTOM_RIGHT, 0, 0);
++    lv_obj_add_flag(zmk_widget_wpm_status_obj(&wpm_status_widget), LV_OBJ_FLAG_HIDDEN);
+ #endif
++
+     return screen;
+ }
+diff --git a/app/src/display/strata_ui.h b/app/src/display/strata_ui.h
+new file mode 100644
+index 00000000..b608989b
+--- /dev/null
++++ b/app/src/display/strata_ui.h
+@@ -0,0 +1,21 @@
++/*
++ * Strata portrait layout for SSD1306 128x32, rendered sideways by software.
++ *
++ * The stock ZMK widgets still supply the state; this module only draws it
++ * into a 32x128 L8 canvas and rotates that buffer into the 128x32 panel.
++ * No extra listeners, no custom status-screen override.
++ */
++
++#pragma once
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include <lvgl.h>
++
++void strata_ui_create(lv_obj_t *screen);
++
++void strata_ui_set_output(const char *text, bool connected, int profile, bool bonded);
++void strata_ui_set_battery(uint8_t level, bool charging);
++void strata_ui_set_layer(int index, const char *label);
++void strata_ui_set_link(bool connected);
+diff --git a/app/src/display/widgets/battery_status.c b/app/src/display/widgets/battery_status.c
+index 22e73faf..e7343f40 100644
+--- a/app/src/display/widgets/battery_status.c
++++ b/app/src/display/widgets/battery_status.c
+@@ -17,6 +17,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
+ #include <zmk/event_manager.h>
+ #include <zmk/events/battery_state_changed.h>
+ 
++#include "../strata_ui.h"
++
+ static sys_slist_t widgets = SYS_SLIST_STATIC_INIT(&widgets);
+ 
+ struct battery_status_state {
+@@ -27,33 +29,16 @@ struct battery_status_state {
+ };
+ 
+ static void set_battery_symbol(lv_obj_t *label, struct battery_status_state state) {
+-    char text[9] = {};
+-
+-    uint8_t level = state.level;
++    char text[8] = {};
+ 
+ #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
+-    if (state.usb_present) {
+-        strcpy(text, LV_SYMBOL_CHARGE " ");
+-    }
+-#endif /* IS_ENABLED(CONFIG_USB_DEVICE_STACK) */
+-
+-#if IS_ENABLED(CONFIG_ZMK_WIDGET_BATTERY_STATUS_SHOW_PERCENTAGE)
+-    char perc[5] = {};
+-    snprintf(perc, sizeof(perc), "%3u%%", level);
+-    strcat(text, perc);
++    bool charging = state.usb_present;
+ #else
+-    if (level > 95) {
+-        strcat(text, LV_SYMBOL_BATTERY_FULL);
+-    } else if (level > 65) {
+-        strcat(text, LV_SYMBOL_BATTERY_3);
+-    } else if (level > 35) {
+-        strcat(text, LV_SYMBOL_BATTERY_2);
+-    } else if (level > 5) {
+-        strcat(text, LV_SYMBOL_BATTERY_1);
+-    } else {
+-        strcat(text, LV_SYMBOL_BATTERY_EMPTY);
+-    }
++    bool charging = false;
+ #endif
++
++    snprintf(text, sizeof(text), charging ? "+%u%%" : "%u%%", state.level);
++    strata_ui_set_battery(state.level, charging);
+     lv_label_set_text(label, text);
+ }
+ 
+@@ -69,7 +54,7 @@ static struct battery_status_state battery_status_get_state(const zmk_event_t *e
+         .level = (ev != NULL) ? ev->state_of_charge : zmk_battery_state_of_charge(),
+ #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
+         .usb_present = zmk_usb_is_powered(),
+-#endif /* IS_ENABLED(CONFIG_USB_DEVICE_STACK) */
++#endif /* CONFIG_USB_DEVICE_STACK */
+     };
+ }
+ 
+@@ -79,7 +64,7 @@ ZMK_DISPLAY_WIDGET_LISTENER(widget_battery_status, struct battery_status_state,
+ ZMK_SUBSCRIPTION(widget_battery_status, zmk_battery_state_changed);
+ #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
+ ZMK_SUBSCRIPTION(widget_battery_status, zmk_usb_conn_state_changed);
+-#endif /* IS_ENABLED(CONFIG_USB_DEVICE_STACK) */
++#endif /* CONFIG_USB_DEVICE_STACK */
+ 
+ int zmk_widget_battery_status_init(struct zmk_widget_battery_status *widget, lv_obj_t *parent) {
+     widget->obj = lv_label_create(parent);
+diff --git a/app/src/display/widgets/layer_status.c b/app/src/display/widgets/layer_status.c
+index 64cb7c3d..91145505 100644
+--- a/app/src/display/widgets/layer_status.c
++++ b/app/src/display/widgets/layer_status.c
+@@ -15,6 +15,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
+ #include <zmk/endpoints.h>
+ #include <zmk/keymap.h>
+ 
++#include "../strata_ui.h"
++
+ static sys_slist_t widgets = SYS_SLIST_STATIC_INIT(&widgets);
+ 
+ struct layer_status_state {
+@@ -23,19 +25,16 @@ struct layer_status_state {
+ };
+ 
+ static void set_layer_symbol(lv_obj_t *label, struct layer_status_state state) {
+-    if (state.label == NULL || strlen(state.label) == 0) {
+-        char text[8] = {};
++    char text[14] = {};
+ 
+-        snprintf(text, sizeof(text), LV_SYMBOL_KEYBOARD " %i", state.index);
+-
+-        lv_label_set_text(label, text);
++    if (state.label == NULL || strlen(state.label) == 0) {
++        snprintf(text, sizeof(text), "L%i", state.index);
+     } else {
+-        char text[14] = {};
+-
+-        snprintf(text, sizeof(text), LV_SYMBOL_KEYBOARD " %s", state.label);
+-
+-        lv_label_set_text(label, text);
++        snprintf(text, sizeof(text), "%.4s", state.label);
+     }
++
++    strata_ui_set_layer(state.index, state.label);
++    lv_label_set_text(label, text);
+ }
+ 
+ static void layer_status_update_cb(struct layer_status_state state) {
+diff --git a/app/src/display/widgets/output_status.c b/app/src/display/widgets/output_status.c
+index 189a7dc2..4523f848 100644
+--- a/app/src/display/widgets/output_status.c
++++ b/app/src/display/widgets/output_status.c
+@@ -18,6 +18,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
+ #include <zmk/ble.h>
+ #include <zmk/endpoints.h>
+ 
++#include "../strata_ui.h"
++
+ static sys_slist_t widgets = SYS_SLIST_STATIC_INIT(&widgets);
+ 
+ struct output_status_state {
+@@ -37,44 +39,38 @@ static struct output_status_state get_state(const zmk_event_t *_eh) {
+ }
+ 
+ static void set_status_symbol(lv_obj_t *label, struct output_status_state state) {
+-    char text[20] = {};
++    char text[12] = {};
+ 
+     enum zmk_transport transport = state.selected_endpoint.transport;
+     bool connected = transport != ZMK_TRANSPORT_NONE;
++    int profile = state.selected_endpoint.ble.profile_index;
+ 
+-    // If we aren't connected, show what we're *trying* to connect to.
++    /* If nothing is connected yet, show what we are trying to connect to. */
+     if (!connected) {
+         transport = state.preferred_transport;
+     }
+ 
+     switch (transport) {
+-    case ZMK_TRANSPORT_NONE:
+-        strcat(text, LV_SYMBOL_CLOSE);
+-        break;
+-
+     case ZMK_TRANSPORT_USB:
+-        strcat(text, LV_SYMBOL_USB);
+-        if (!connected) {
+-            strcat(text, " " LV_SYMBOL_CLOSE);
+-        }
++        snprintf(text, sizeof(text), connected ? "USB" : "USB-");
+         break;
+ 
+-    case ZMK_TRANSPORT_BLE:
+-        if (state.active_profile_bonded) {
+-            if (state.active_profile_connected) {
+-                snprintf(text, sizeof(text), LV_SYMBOL_WIFI " %i " LV_SYMBOL_OK,
+-                         state.selected_endpoint.ble.profile_index + 1);
+-            } else {
+-                snprintf(text, sizeof(text), LV_SYMBOL_WIFI " %i " LV_SYMBOL_CLOSE,
+-                         state.selected_endpoint.ble.profile_index + 1);
+-            }
++    case ZMK_TRANSPORT_BLE: {
++        if (!state.active_profile_bonded) {
++            snprintf(text, sizeof(text), "PAIR%d", profile + 1);
+         } else {
+-            snprintf(text, sizeof(text), LV_SYMBOL_WIFI " %i " LV_SYMBOL_SETTINGS,
+-                     state.selected_endpoint.ble.profile_index + 1);
++            snprintf(text, sizeof(text), "BT%d%s", profile + 1, connected ? "+" : "-");
+         }
+         break;
+     }
+ 
++    case ZMK_TRANSPORT_NONE:
++    default:
++        snprintf(text, sizeof(text), "OFF");
++        break;
++    }
++
++    strata_ui_set_output(text, connected, profile, state.active_profile_bonded);
+     lv_label_set_text(label, text);
+ }
+ 
+diff --git a/app/src/display/widgets/peripheral_status.c b/app/src/display/widgets/peripheral_status.c
+index fdfe4d9c..7caf9be9 100644
+--- a/app/src/display/widgets/peripheral_status.c
++++ b/app/src/display/widgets/peripheral_status.c
+@@ -15,6 +15,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
+ #include <zmk/split/bluetooth/peripheral.h>
+ #include <zmk/events/split_peripheral_status_changed.h>
+ 
++#include "../strata_ui.h"
++
+ static sys_slist_t widgets = SYS_SLIST_STATIC_INIT(&widgets);
+ 
+ struct peripheral_status_state {
+@@ -26,10 +28,10 @@ static struct peripheral_status_state get_state(const zmk_event_t *_eh) {
+ }
+ 
+ static void set_status_symbol(lv_obj_t *label, struct peripheral_status_state state) {
+-    const char *text =
+-        state.connected ? (LV_SYMBOL_WIFI " " LV_SYMBOL_OK) : (LV_SYMBOL_WIFI " " LV_SYMBOL_CLOSE);
++    const char *text = state.connected ? "LINK+" : "LINK-";
+ 
+     LOG_DBG("connected? %s", state.connected ? "true" : "false");
++    strata_ui_set_link(state.connected);
+     lv_label_set_text(label, text);
+ }
+ 
+-- 
+2.56.1
+

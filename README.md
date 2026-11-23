@@ -12,6 +12,8 @@ firmware ZMK, dibangun penuh di lokal (Arch Linux, tanpa Docker).
 | `config/corne_right.keymap` | symlink ke `corne_left.keymap` |
 | `build.sh` | build firmware (`./build.sh left\|right\|all`) |
 | `flash.sh` | build + flash interaktif via UF2 |
+| `patches/oled-strata.patch` | mod layar OLED strata (portrait 90°) untuk source ZMK di `app/app` |
+| `apply-oled-mod.sh` | pasang ulang patch OLED setelah `west update` / checkout baru |
 | `check-keymap.py` | cek diagram comment vs `bindings` di keymap, dan label vs `map.svg` |
 | `map.svg` | peta tombol 4 layer (dihasilkan dari keymap, siap dicetak) |
 | `.gitignore` | menutupi west workspace, venv, hasil build |
@@ -60,6 +62,7 @@ cd ../..
 .venv/bin/west update          # ~3.5 GB, butuh waktu
 .venv/bin/west zephyr-export
 .venv/bin/west packages pip --install
+./apply-oled-mod.sh            # pasang mod layar OLED strata
 ```
 
 ### 4. Zephyr SDK
@@ -118,6 +121,20 @@ Ganti serial di baris atas `flash.sh` kalau board-nya berbeda.
 
 Masuk bootloader: **double-tap tombol reset**, atau **tahan reset sambil
 colok USB**.
+
+## Layar OLED strata
+
+Source ZMK di `app/app` di-ignore git (checkout west), jadi mod layarnya
+disimpan sebagai patch di repo ini: `patches/oled-strata.patch`. Isinya:
+canvas portrait 32×128 di-rotate 90° software ke panel 128×32; kiri =
+output/BT + 5 kotak layer + baterai, kanan = logo piksel + LINK + baterai
+(petir di dalam ikon baterai saat charging).
+
+Kalau `west update` / checkout ulang menghapus mod-nya:
+
+```bash
+./apply-oled-mod.sh   # idempoten, lalu ./build.sh all
+```
 
 ## Opsi build (`config/corne.conf`)
 
