@@ -6,16 +6,16 @@ Subject: [PATCH] feat(display): strata portrait OLED layout for Corne (SSD1306
 
 - 32x128 portrait canvas rotated 90deg into the 128x32 panel, software only
 - left: output/BT profiles, 5 layer boxes, battery gauge with charging bolt
-- right: pixel logo (logo2.piskel), split LINK status, battery gauge
+- right: pixel logo (pinguin.png), split LINK status, battery gauge
 - stock widgets kept as hidden state sources feeding the strata UI
 ---
- app/src/display/status_screen.c             | 303 +++++++++++++++++++-
+ app/src/display/status_screen.c             | 305 +++++++++++++++++++-
  app/src/display/strata_ui.h                 |  21 ++
  app/src/display/widgets/battery_status.c    |  35 +--
  app/src/display/widgets/layer_status.c      |  19 +-
  app/src/display/widgets/output_status.c     |  38 ++-
  app/src/display/widgets/peripheral_status.c |   6 +-
- 6 files changed, 354 insertions(+), 68 deletions(-)
+ 6 files changed, 356 insertions(+), 68 deletions(-)
  create mode 100644 app/src/display/strata_ui.h
 
 diff --git a/app/src/display/status_screen.c b/app/src/display/status_screen.c
@@ -42,7 +42,7 @@ index 58de09ae..96a2a7c0 100644
  #include <zmk/display/widgets/output_status.h>
  #include <zmk/display/widgets/peripheral_status.h>
  #include <zmk/display/widgets/battery_status.h>
-@@ -14,6 +25,278 @@
+@@ -14,6 +25,280 @@
  #include <zephyr/logging/log.h>
  LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
  
@@ -80,16 +80,18 @@ index 58de09ae..96a2a7c0 100644
 +    .profile = -1,
 +};
 +
-+/* 32x32 logo from logo2.piskel, bit 0 is the leftmost pixel of each row. */
++/* 32x32 logo from pinguin.png: inverted 1-bit (bright source pixels are
++ * drawn dark), no pre-rotation so the panel shows it 90deg CW (180deg from
++ * the previous version). Bit 0 is the leftmost pixel of each row. */
 +static const uint32_t strata_logo[32] __attribute__((unused)) = {
-+    0x00000000, 0x00000000, 0x0000f800, 0x00018c00,
-+    0x00010600, 0x00030200, 0x00020200, 0x00020200,
-+    0x0003fe00, 0x00020200, 0x00020200, 0x00020200,
-+    0x00020200, 0x00020200, 0x003e0200, 0x00600200,
-+    0x00c00200, 0x00800200, 0x00800200, 0x00800200,
-+    0x00c00200, 0x00600200, 0x00600200, 0x00c00200,
-+    0x00800200, 0x00800200, 0x00c00600, 0x00600c00,
-+    0x00301800, 0x001ff000, 0x00000000, 0x00000000,
++    0x0007f000, 0x00180c00, 0x00200200, 0x00400100,
++    0x00800080, 0x010c0cc0, 0x011f1e40, 0x023fbf40,
++    0x023fff20, 0x027bf320, 0x0273f320, 0x027f1f20,
++    0x027fbf00, 0x013fff40, 0x019ffc80, 0x0307f180,
++    0x040ff840, 0x0c1ffc20, 0x181ffc10, 0x103ffe18,
++    0x203ffe08, 0x227ffe88, 0x1e7ffef0, 0x027ffe80,
++    0x027ffd80, 0x013ff040, 0x019fe040, 0x00c060c0,
++    0x0061b180, 0x00411100, 0x00420e00, 0x003c0000,
 +};
 +
 +static void strata_fill(lv_layer_t *layer, int x, int y, int w, int h, lv_color_t color) {

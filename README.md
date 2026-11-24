@@ -128,7 +128,9 @@ Source ZMK di `app/app` di-ignore git (checkout west), jadi mod layarnya
 disimpan sebagai patch di repo ini: `patches/oled-strata.patch`. Isinya:
 canvas portrait 32×128 di-rotate 90° software ke panel 128×32; kiri =
 output/BT + 5 kotak layer + baterai, kanan = logo piksel + LINK + baterai
-(petir di dalam ikon baterai saat charging).
+(petir di dalam ikon baterai saat charging). Logo kanan berasal dari
+`pinguin.png` yang dikonversi ke bitmap 1-bit 32×32 (di-invert, diputar 90°
+ke kanan).
 
 Kalau `west update` / checkout ulang menghapus mod-nya:
 

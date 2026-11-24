@@ -53,7 +53,7 @@
                 compatible = "zmk,keymap";
 
                 default_layer {
-                        display-name = "0";
+                        display-name = "base";
 //       | TAB  | Q    | W    | E    | R    | T    | Y    | U    | I    | O    | P    | BSPC  |
 //       | SHFT | A    | S    | D    | F    | G    | H    | J    | K    | L    | ;    | '/SFT |
 //       | CTRL | Z    | X    | C    | V    | B    | N    | M    | ,    | .    | /    | ES/CTL|
@@ -67,7 +67,7 @@
                 };
 
                 lower_layer {
-                        display-name = "1";
+                        display-name = "numb";
 //       | TAB  | 1    | 2    | 3    | 4    | 5    | 6    | 7    | 8    | 9    | 0    | BSPC|
 //       | SHFT | BT1  | BT2  | BT3  | BT4  | BT5  | MENU | LEFT | UP   | DOWN | RIGHT|     |
 //       | CTRL | UNLK |      |      | BTCLR|      |      |      |      |      |      |     |
@@ -81,7 +81,7 @@
                 };
 
                 raise_layer {
-                        display-name = "2";
+                        display-name = "sym";
 //       | TAB  | !    | @    | #     | $    | %     | ^    | &    | *    | (    | )    | DEL |
 //       | CAPS | PgUp | PRTSC| BRDN  | BRUP |       | -    | =    | [    | ]    | \    | `   |
 //       | CTRL | PgDn |      | VOLDN | VOLUP|       | _    | +    | {    | }    | \|   | ~   |
@@ -95,7 +95,7 @@
                 };
 
                 mouse_layer {
-                        display-name = "3";
+                        display-name = "mse";
 //       |      |      |       | MOVEU |       |       | SCRLL | SCRLR | MB3  | MB4  | MB5  |    |
 //       |      |      | MOVEL | MOVED | MOVER |       | SCRLU | LCLK  | RCLK |      |      |    |
 //       |      |      | PREV  | PLAY  | NEXT  |       | SCRLD |       |      |      |      |    |
