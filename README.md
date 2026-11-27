@@ -14,6 +14,7 @@ firmware ZMK, dibangun penuh di lokal (Arch Linux, tanpa Docker).
 | `flash.sh` | build + flash interaktif via UF2 |
 | `patches/oled-strata.patch` | mod layar OLED strata (portrait 90°) untuk source ZMK di `app/app` |
 | `apply-oled-mod.sh` | pasang ulang patch OLED setelah `west update` / checkout baru |
+| `tools/convert-oled-logo.py` | konversi gambar + pasang otomatis ke source/patch OLED (lihat bawah) |
 | `check-keymap.py` | cek diagram comment vs `bindings` di keymap, dan label vs `map.svg` |
 | `map.svg` | peta tombol 4 layer (dihasilkan dari keymap, siap dicetak) |
 | `.gitignore` | menutupi west workspace, venv, hasil build |
@@ -128,15 +129,76 @@ Source ZMK di `app/app` di-ignore git (checkout west), jadi mod layarnya
 disimpan sebagai patch di repo ini: `patches/oled-strata.patch`. Isinya:
 canvas portrait 32×128 di-rotate 90° software ke panel 128×32; kiri =
 output/BT + 5 kotak layer + baterai, kanan = logo piksel + LINK + baterai
-(petir di dalam ikon baterai saat charging). Logo kanan berasal dari
-`arch.webp` yang dikonversi ke bitmap 1-bit 32×32 (di-invert, diputar 90°
-ke kanan).
+(ikon baterai rounded, petir di dalamnya saat charging). Logo kanan saat ini
+berupa bitmap 1-bit 32×79 hasil konversi gambar.
 
 Kalau `west update` / checkout ulang menghapus mod-nya:
 
 ```bash
 ./apply-oled-mod.sh   # idempoten, lalu ./build.sh all
 ```
+
+### Ganti gambar logo OLED (cara universal)
+
+Area logo di kanvas portrait adalah baris `14..100` (LINK di atas, baterai di
+bawah). Lebar gambar selalu `32` — ini memetakan ke tinggi penuh layar 32 px —
+sedangkan tinggi `H = round(32 × tinggi_sumber / lebar_sumber)` memetakan ke
+panjang layar 128 px, dan ditempatkan di tengah: `y0 = 14 + (87 − H) / 2`.
+
+Aturan konversinya:
+
+- `luminansi > 80` → piksel digambar hitam (`STRATA_FG`); sisanya dibiarkan
+  putih/transparan. Ini sengaja di-invert supaya tidak ada kotak background
+  putih mengelilingi objek.
+- bit 0 = piksel paling kiri tiap baris, disimpan sebagai `1 << (31 − x)`.
+- gambar **tidak** dipra-rotasi; rotasi 90° CW dilakukan `strata_redraw()`
+  saat menyalin canvas portrait ke panel. Jadi di layar tampil 90° ke kanan
+  dari gambar sumber.
+
+Untuk hasil paling optimal, gunakan **pixel art 1-bit hitam-putih** yang sudah
+mendekati grid `32 × H`. Setiap pikselnya sudah presisi di grid OLED, jadi tidak
+perlu menebak threshold dan garis tidak kabur setelah di-*resize*. Foto atau
+gambar grayscale tetap bisa, tapi hasilnya lebih bergantung pada threshold dan
+sering meninggalkan *noise* setelah dikonversi ke 1-bit.
+
+Gunakan script agar tidak menghitung manual (butuh Pillow):
+
+```bash
+python3 -m pip install pillow            # atau: .venv/bin/pip install pillow
+python3 tools/convert-oled-logo.py GAMBAR
+```
+
+Output default hanya mencetak potongan C siap ditempel. Tambahkan `--patch`
+supaya script **langsung menulis** ke dua file sekaligus — tidak perlu edit
+manual:
+
+```bash
+python3 tools/convert-oled-logo.py GAMBAR --patch
+# tambahkan --dry-run kalau cuma mau melihat ringkasannya
+```
+
+Yang diubah otomatis:
+
+- `app/app/src/display/status_screen.c` — array `strata_logo[]`, `const int y0`,
+  dan batas `for (int y = 0; y < H; y++)` di `strata_draw_logo()`.
+- `patches/oled-strata.patch` — blok array ber-awalan `+`, header hunk, dan
+  diffstat yang dihitung ulang.
+
+Setelah itu cukup:
+
+```bash
+./apply-oled-mod.sh     # harus bilang "sudah terpasang", bukan menimpa
+./build.sh right
+```
+
+Opsi `--threshold`, `--width`, `--top`, `--bottom` tersedia kalau aturan di atas
+diubah. Tambahkan `--invert` kalau gambar perlu dibalik lebih dulu (putih jadi
+hitam, hitam jadi putih) sebelum threshold diterapkan — berguna untuk gambar
+dengan background cerah dan subjek gelap.
+
+Jika `H > 87`, gambar terlalu tinggi untuk area antara LINK dan baterai; script
+memotongnya sambil memberi peringatan — lebih baik *crop* gambar dulu atau
+turunkan `--width`.
 
 ## Opsi build (`config/corne.conf`)
 
