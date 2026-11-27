@@ -6,7 +6,7 @@ Subject: [PATCH] feat(display): strata portrait OLED layout for Corne (SSD1306
 
 - 32x128 portrait canvas rotated 90deg into the 128x32 panel, software only
 - left: output/BT profiles, 5 layer boxes, battery gauge with charging bolt
-- right: pixel logo (pinguin.png), split LINK status, battery gauge
+- right: pixel logo (arch.webp), split LINK status, battery gauge
 - stock widgets kept as hidden state sources feeding the strata UI
 ---
  app/src/display/status_screen.c             | 305 +++++++++++++++++++-
@@ -80,18 +80,18 @@ index 58de09ae..96a2a7c0 100644
 +    .profile = -1,
 +};
 +
-+/* 32x32 logo from pinguin.png: inverted 1-bit (bright source pixels are
-+ * drawn dark), no pre-rotation so the panel shows it 90deg CW (180deg from
-+ * the previous version). Bit 0 is the leftmost pixel of each row. */
++/* 32x32 logo from arch.webp: inverted 1-bit (bright source pixels are drawn
++ * dark), no pre-rotation so the panel shows it 90deg CW, same orientation as
++ * the previous logo. Bit 0 is the leftmost pixel of each row. */
 +static const uint32_t strata_logo[32] __attribute__((unused)) = {
-+    0x0007f000, 0x00180c00, 0x00200200, 0x00400100,
-+    0x00800080, 0x010c0cc0, 0x011f1e40, 0x023fbf40,
-+    0x023fff20, 0x027bf320, 0x0273f320, 0x027f1f20,
-+    0x027fbf00, 0x013fff40, 0x019ffc80, 0x0307f180,
-+    0x040ff840, 0x0c1ffc20, 0x181ffc10, 0x103ffe18,
-+    0x203ffe08, 0x227ffe88, 0x1e7ffef0, 0x027ffe80,
-+    0x027ffd80, 0x013ff040, 0x019fe040, 0x00c060c0,
-+    0x0061b180, 0x00411100, 0x00420e00, 0x003c0000,
++    0x00000000, 0x00010000, 0x00018000, 0x00038000,
++    0x0003c000, 0x0007c000, 0x0007e000, 0x0007e000,
++    0x0003f000, 0x0019f000, 0x001cf800, 0x003ff800,
++    0x003ffc00, 0x007ffc00, 0x007ffe00, 0x00fffe00,
++    0x00ffff00, 0x01ffff00, 0x01fc3f80, 0x03f81f80,
++    0x03f81fc0, 0x07f81f00, 0x07f81f80, 0x0ff81fe0,
++    0x0ff00ff0, 0x1f8001f0, 0x1c000078, 0x38000018,
++    0x2000000c, 0x00000000, 0x00000000, 0x00000000,
 +};
 +
 +static void strata_fill(lv_layer_t *layer, int x, int y, int w, int h, lv_color_t color) {
